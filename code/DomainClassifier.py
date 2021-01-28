@@ -22,9 +22,10 @@ def main():
     question_dic = data_features['question_dic']
    
     bert_config, bert_class, bert_tokenizer = (BertConfig, BertForSequenceClassification, BertTokenizer)
-    config = bert_config.from_pretrained('trained_model_Domain/config.json')
-    model = bert_class.from_pretrained('trained_model_Domain/pytorch_model.bin', from_tf=bool('.ckpt' in 'bert-base-chinese'),config=config)
+    config = bert_config.from_pretrained('/share/nas165/Wendy/EZAIDialogue/DomainClassification_FAQ/trained_model/config.json')
+    model = bert_class.from_pretrained('/share/nas165/Wendy/EZAIDialogue/DomainClassification_FAQ/trained_model/pytorch_model.bin', from_tf=bool('.ckpt' in 'bert-base-chinese'),config=config)
     model.eval()
+    
     #讀取驗證資料問題集(user query)
     q = open('Dataset/Query_Test/question_test.txt', "r",encoding="utf-8")
     q_inputs = q.readlines()
@@ -34,12 +35,14 @@ def main():
     a = open('Dataset/Test_Label/DomainLabelForTest.txt', "r",encoding="utf-8")
     answer = a.readlines()
     a.close()
+    
     predict_ans_dict={}
     predict_ans=[]
+    q_inputs=['我要買1份香蔥蛋椒鹽燒肉土司加蛋和伯爵紅茶']
     for q_input in q_inputs:
         cutQ=jieba.lcut(q_input)
         #keywordls=["我想訂","號餐","我想要","內用","我要","我要訂","一份","一個"]
-        keywordls=["我想吃"]
+        #keywordls=["我想吃"]
         bert_ids = toBertIds(tokenizer,q_input)        
         assert len(bert_ids) <= 512
         input_ids = torch.LongTensor(bert_ids).unsqueeze(0)
@@ -51,8 +54,8 @@ def main():
      
         max_val = torch.max(predicts)
         label = (predicts == max_val).nonzero().numpy()[0][1]     
-        if(diff(keywordls,cutQ)):
-            label=0
+        # if(diff(keywordls,cutQ)):
+        #     label=0
         predict_ans.append(label)
         predict_ans_dict[q_input.replace("\n", "")]=label
     return predict_ans_dict
