@@ -2,8 +2,11 @@
 import jieba
 import sys
 import re
+import json
+from sentence_transformers import SentenceTransformer
+import scipy.spatial
 jieba.load_userdict("../text/itemdict.txt")
-#History=set()
+embedder = SentenceTransformer('bert-base-nli-mean-tokens')
 # 套餐
 meal_setList = ['一號餐','二號餐','三號餐','四號餐','五號餐','六號餐','七號餐','八號餐','九號餐','十號餐',
 '1號餐','2號餐','3號餐','4號餐','5號餐','6號餐','7號餐','8號餐','9號餐','10號餐',
@@ -11,7 +14,7 @@ meal_setList = ['一號餐','二號餐','三號餐','四號餐','五號餐','六
 '1號','2號','3號','4號','5號','6號','7號','8號','9號','10號',
 '11號','12號','13號','14號','15號','16號','17號','18號','19號']
 # 單點 
-hito_mealsList = ['香濃起司營養三明治', '丹麥DiDi卡', '花生培根蛋土司','花生培根蛋吐司', '醬燒豬排三明治', '雞肉棒', '鮪魚玉米夾蛋丹麥吐司','鮪魚玉米夾蛋丹麥土司', '黃金炸豬起司刈包',
+hito_mealsList = ['香蔥蛋椒鹽燒肉土司','香濃起司營養三明治', '丹麥DiDi卡', '花生培根蛋土司','花生培根蛋吐司', '醬燒豬排三明治', '雞肉棒', '鮪魚玉米夾蛋丹麥吐司','鮪魚玉米夾蛋丹麥土司', '黃金炸豬起司刈包',
 '火星小薯餅', '雙倍香濃起司蛋土司','雙倍香濃起司蛋吐司', '丹麥鮮蔬薯泥', '招牌三明治', '泰式辣鬆蛋餅', '豬排蛋吐司', '香酥雞肉堡', '特級培根義大利麵', '起士土司','起士吐司',
 '薯條', '起司蛋吐司', '奶酥吐司', '燒肉雞蛋丹麥吐司', '玉米蛋餅', '奶油餐包', '燒肉蛋吐司', '招牌', '里肌豬排三明治', '波浪薯條', '慢烤起司三明治',
  '原味蛋餅', '雞塊', '菜脯雞肉三明治', '火腿薯餅蛋土司','火腿薯餅蛋吐司', '黃金炸豬起司堡', '脆皮雞腿堡', '花生醬起司牛肉堡', '丹麥吉事蛋', '里肌豬肉三明治',
@@ -41,19 +44,27 @@ quantityList = ['1片','2片','3片','4片','5片','6片','7片','8片','9片','
 ]
 drink_quantity = ['1杯','2杯','3杯','4杯','5杯','6杯','7杯','8杯','9杯','10杯','一杯','二杯','三杯','四杯','五杯','六杯','七杯','八杯','九杯','十杯','兩杯']
 # 動作 
-meal_takeList = ['外帶自取','內用','外送']
+meal_takeList = ['外帶自取','內用','外送','自取','外帶']
 # 取餐日期 
 order_dateList = ['今天','明天']
 # 取餐時間 
 order_timetext = ['等一下','早上']
 #湯品大小
 soup_size=['大份','小份']
+#加點
+hito_meals_plus=['加蛋']
 
+Responses={'meal_takeList_meal':'好的，請問您要「內用」、「外帶自取」還是「外送」?','meal_takeList_hito':'好的，請問您要「內用」、「外帶自取」還是「外送」?'
+,'drink_sizeList':'好的，請問您的飲料要「大杯」、「中杯」還是「小杯」?','drink_temperatureList':'好的，請問您的飲料要「冰的」、「溫的」、「熱的」還是「去冰」?'
+,'drink_sugarList':'請問您的飲料甜度要「全糖」、「半糖」、「微糖」或是「無糖」?','meal_takeList_drink':'好的，請問您要「內用」、「外帶自取」還是「外送」'
+,'soupSize':'好的，請問您的湯品要「大份」還是「小份」','meal_takeList_soup':'好的，請問您要「內用」、「外帶自取」還是「外送」'}
+#BufferFiles
+Jsonfilename="Slot.json"
+Historyfilename="History.txt"
 # 1 true 0 false
 def processDescription(slot_result):
     temp_order = {}
     temp_order=slot_result.copy()
-
     return temp_order
 
 def appendToFinalList(slot_result,order_finalList):
@@ -70,15 +81,15 @@ def printResult(slot_result,order_finalList):
     # 輸出所有結果(不過我是在cmd上直接print)，order_finalList type=list
     meal_order={'meal_setList':' ','quantityList_mealset':'1','meal_takeList_meal':' '}
     hito_meals={'hito_mealsList':' ','quantityList_hitoset':'1','hito_meals_plus':' ','meal_takeList_hito':' '}
-    drink={'drink_List':' ','drink_quantity':'1','drink_sizeList':' ','drink_temperatureList':' ','drink_sugarList':'微糖','meal_takeList_drink':' '}
+    drink={'drink_List':' ','drink_quantity':'1','drink_sizeList':' ','drink_temperatureList':' ','drink_sugarList':' ','meal_takeList_drink':' '}
     soup={'soupList':' ','soupSize':' ','meal_takeList_soup':' '}
     order_time={'order_dateList':' ','order_timetext':' ','order_timeList':' '}
 
-    Response={'meal_order':' ','hito_meals':' ','drink':' ','soup':' ','order_time':' ','other':' '}
+    # Response={'meal_order':' ','hito_meals':' ','drink':' ','soup':' ','order_time':' ','other':' '}
     
     order_finalList=appendToFinalList(slot_result,order_finalList)
-    Response=DM(order_finalList,meal_order,hito_meals,drink,soup,order_time,Response)
-
+    Response=DM(order_finalList,meal_order,hito_meals,drink,soup,order_time)
+    
     return Response
 
 def merge_two_dicts(x, y):
@@ -87,7 +98,38 @@ def merge_two_dicts(x, y):
     z.update(y)
     return z
 
-def DM(order_finalList,meal_order,hito_meals,drink,soup,order_time,Response): 
+def ReadSlotFromJson(Jsonfilename):
+    file = open(Jsonfilename, 'r', encoding='utf-8')
+    data = []
+    for line in file.readlines():
+        dic = json.loads(line)
+        data.append(dic)
+    return data
+
+def WriteSlotToJson(Jsonfilename,Slot,truncate=False):
+    with open(Jsonfilename,'a') as outfile:
+        if(truncate==True):
+            outfile.seek(0)
+            outfile.truncate() 
+            for idx in range(len(Slot)):
+                json.dump(Slot[idx],outfile,ensure_ascii=False)
+                outfile.write('\n')
+        else:
+            json.dump(Slot,outfile,ensure_ascii=False)     
+            outfile.write('\n')
+
+def ReadHistory(filename):
+    fp = open(filename, "r")
+    lines = fp.readlines() 
+    fp.close()
+    return lines[0]
+
+def WriteHistory(filename,History):
+    fp = open(filename, "w")
+    fp.write(History)
+    fp.close()
+
+def DM(order_finalList,meal_order,hito_meals,drink,soup,order_time):  
     ls_meal_order=[]
     ls_hito_meals=[]
     ls_drink=[]
@@ -107,232 +149,238 @@ def DM(order_finalList,meal_order,hito_meals,drink,soup,order_time,Response):
             else:
                 if(key in meal_order):
                     new_meal_order=merge_two_dicts(meal_order,order)
-                    ls_meal_order.append(new_meal_order)
+                    WriteSlotToJson(Jsonfilename,new_meal_order)
+                    ls_meal_order.append(new_meal_order)# example:[{'hito_mealsList': '香蔥蛋椒鹽燒肉土司', 'quantityList_hitoset': '1份', 'hito_meals_plus': ' ', 'meal_takeList_hito': ' '}]
                 elif(key in hito_meals):
                     new_hito_meals=merge_two_dicts(hito_meals,order)
+                    WriteSlotToJson(Jsonfilename,new_hito_meals)
                     ls_hito_meals.append(new_hito_meals)
                 elif(key in drink):
                     new_drink=merge_two_dicts(drink,order)
+                    WriteSlotToJson(Jsonfilename,new_drink)
                     ls_drink.append(new_drink)
                 elif(key in soup):
                     new_soup=merge_two_dicts(soup,order)
+                    WriteSlotToJson(Jsonfilename,new_soup)
                     ls_soup.append(new_soup)
                 elif(key in order_time):
                     new_order_time=merge_two_dicts(order_time,order)
+                    WriteSlotToJson(Jsonfilename,new_order_time)
                     ls_order_time.append(new_order_time)
-
-    #套餐
-    if(ls_meal_order!=[]):
-        for dict_meal in ls_meal_order:
-            Response_meal=[]
-            for key,value in dict_meal.items():
-                if(value==' ' and key=='meal_takeList_meal'):
-                    Response_meal.append('好的，請問您要「內用」、「外帶自取」還是「外送」')
-                    Response_meal.append('好的，已為您下單')
-                    Response['meal_order']=Response_meal
-    #單點
-    if(ls_hito_meals!=[]):
-        for dict_hito in ls_hito_meals:
-            Response_hito=[]
-            for key,value in dict_hito.items():
-                if(value==' ' and key=='meal_takeList_hito'):
-                    Response_hito.append('好的，請問您要「內用」、「外帶自取」還是「外送」')
-                    Response_hito.append('好的，已為您下單')
-                    Response['hito_meals']=Response_hito
-     #飲料
-    if(ls_drink!=[]):
-        for dict_drink in ls_drink:
-            Response_drink=[]
-            for key,value in dict_drink.items():
-                if(value==' ' and key=='drink_sizeList'):
-                    Response_drink.append('好的，請問您的飲料要「大杯」、「中杯」還是「小杯」？')
-                    Response_drink.append('好的，已為您下單')
-                    Response['drink']=Response_drink
-                elif(value==' ' and key=='drink_temperatureList'):
-                    Response_drink.append('好的，請問您的飲料要「冰的」、「溫的」、「熱的」還是「去冰」？')
-                    Response_drink.append('好的，已為您下單')
-                    Response['drink']=Response_drink
-                elif(value==' ' and key=='meal_takeList_drink'):
-                    Response_drink.append('好的，請問您要「內用」、「外帶自取」還是「外送」')
-                    Response_drink.append('好的，已為您下單')
-                    Response['drink']=Response_drink
-    #湯品
-    if(ls_soup!=[]):
-        for dict_soup in ls_soup:
-            Response_soup=[]
-            for key,value in dict_soup.items():
-                if(value==' ' and key=='soupSize'):
-                    Response_soup.append('好的，請問您的湯品要「大份」還是「小份」')
-                    Response_soup.append('好的，已為您下單')
-                    Response['soup']=Response_soup
-                elif(value==' ' and key=='meal_takeList_soup'):
-                    Response_soup.append('好的，請問您要「內用」、「外帶自取」還是「外送」')
-                    Response_soup.append('好的，已為您下單')
-                    Response['soup']=Response_soup
+  
     if(ls_meal_order==[] and ls_hito_meals==[] and ls_drink==[] and ls_soup==[]):
-        Response['other']='不好意思查無此菜單'
-
-    return Response                              
-       
+        return '不好意思查無此菜單'
+    else:
+        return ' '
+                           
 def readfile():
     # 載入query
     file_Query = open("../text/query.txt", "r",encoding="utf-8")
     rQueryLines = file_Query.readlines()
     file_Query.close()
     return rQueryLines
-    
-def RuleBased(rQueryLines):
+
+def diff(listA,listB):
+    #求交集的两种方式
+    retA = [i for i in listA if i in listB]
+    return retA
+
+def mainResponse(bufferslot,Responses):
+    for dic in bufferslot:
+        for k,v in dic.items():
+            if(v==" "):
+                WriteHistory(Historyfilename,Responses[k])
+                return Responses[k]
+class getoutofloop(Exception): pass
+def mainOrder(qline):
+    bufferslot=ReadSlotFromJson(Jsonfilename)
+    if(bufferslot!=[]):
+        # History=list(ReadHistory(Historyfilename))
+        # corpus_embeddings = embedder.encode(History)
+        # qline=list(qline)
+        # query_embeddings = embedder.encode(qline)
+        # distances = scipy.spatial.distance.cdist(query_embeddings, corpus_embeddings, "cosine")[0][0]
+        History=ReadHistory(Historyfilename)
+        History_list = [t for t in jieba.cut(History, cut_all=False, HMM=True)]
+        input("History_list")
+        print(History_list)
+        qline_list = [t for t in jieba.cut(qline, cut_all=False, HMM=True)]
+        input("qline_list")
+        print(qline_list)
+        Intersection=diff(History_list,qline_list)
+        input("Intersection")
+        print(Intersection)
+        try:
+            if(("外帶" in qline_list) or ("自取"in qline_list)):
+                for dic in bufferslot:
+                        for k,v in dic.items():
+                            if(v==" "):
+                                if(("外帶" in qline_list)==True):
+                                    dic[k]="外帶"
+                                    raise getoutofloop()
+                                elif(("自取"in qline_list)==True):
+                                    dic[k]="自取"
+                                    raise getoutofloop()
+            else:
+                if (len(Intersection)!=0):
+                    for dic in bufferslot:
+                        for k,v in dic.items():
+                            if(v==" "):
+                                dic[k]=Intersection[0]
+                                raise getoutofloop()
+        except getoutofloop:
+            pass
+        print(bufferslot)
+        
+        WriteSlotToJson(Jsonfilename,bufferslot,truncate=True)
+        mainResponse(bufferslot,Responses)
+    else:
+        Response=RuleBased(qline)
+        return Response
+#####
+def RuleBased(qline):
 #def RuleBased(): 
     #rQueryLines=readfile()
+    #先檢查是否有儲存slot資料     
+    # for idx,qline in enumerate(rQueryLines):
+    # 讀取每一行，去掉Q: 將逗號、換行、 白替換成底線，方便斷句用
+    qline = qline.replace("Q：","")
+    qline = qline.replace("，","_")
+    qline = qline.replace(",","_")
+    qline = qline.replace(" ","_")
+    qline = qline.replace("\n","")
+    qline = qline.replace("跟","_")
+    qline = qline.replace("和","_")
+    #qline = qline.replace("+","_")
+    qline = qline.split("_")
+    slot_result = {}
+    order_finalList = []
+    # 依照每一行的斷句分析slot，讀到重複的slot，先處理slot_result並存進order_finalList
+    for part_of_qline in qline:
+        if part_of_qline != '':
+            noun_list = [t for t in jieba.cut(part_of_qline, cut_all=False, HMM=True)]#斷詞       
+            for i,noun in enumerate(noun_list):
+                # 讀到重複的slot，先處理slot_result並存進order_finalList
+                # 再將新的資料填進slot
+                if (noun in meal_setList):
+                    if "meal_setList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["meal_setList"] = noun
+                    
+                elif (noun in hito_mealsList):
+                    if "hito_mealsList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["hito_mealsList"] = noun
 
-    for idx,qline in enumerate(rQueryLines):
-        History=set()
-        print("------------------------------------------------------------------")
-        print(str(idx))
-        # 讀取每一行，去掉Q: 將逗號、換行、 白替換成底線，方便斷句用
-        qline = qline.replace("Q：","")
-        qline = qline.replace("，","_")
-        qline = qline.replace(",","_")
-        qline = qline.replace(" ","_")
-        qline = qline.replace("\n","")
-        qline = qline.replace("跟","_")
-        #qline = qline.replace("+","_")
-        qline = qline.split("_")
-        slot_result = {}
-        order_finalList = []
-        # 依照每一行的斷句分析slot，讀到重複的slot，先處理slot_result並存進order_finalList
-        for part_of_qline in qline:
-            if part_of_qline != '':
-                noun_list = [t for t in jieba.cut(part_of_qline, cut_all=False, HMM=True)]#斷詞
-             
-                for i,noun in enumerate(noun_list):
-                    # 讀到重複的slot，先處理slot_result並存進order_finalList
-                    # 再將新的資料填進slot
-                    if (noun in meal_setList):
-                        if "meal_setList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["meal_setList"] = noun
-                        
-                    elif (noun in hito_mealsList):
-                        if "hito_mealsList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["hito_mealsList"] = noun
+                elif (noun in drink_List):
+                    if "drink_List" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["drink_List"] = noun
+                    
+                elif (noun in soupList):
+                    if "soupList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["soupList"] = noun
+                    
+                elif (noun in drink_temperatureList):
+                    if "drink_temperatureList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["drink_temperatureList"] = noun
 
-                    elif (noun in drink_List):
-                        if "drink_List" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["drink_List"] = noun
-                        
-                    elif (noun in soupList):
-                        if "soupList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["soupList"] = noun
-                        
-                    elif (noun in drink_temperatureList):
-                        if "drink_temperatureList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["drink_temperatureList"] = noun
+                elif (noun in drink_sugarList):
+                    if "drink_sugarList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["drink_sugarList"] = noun
 
-                    elif (noun in drink_sugarList):
-                        if "drink_sugarList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["drink_sugarList"] = noun
+                elif (noun in drink_sizeList):
+                    if "drink_sizeList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["drink_sizeList"] = noun
 
-                    elif (noun in drink_sizeList):
-                        if "drink_sizeList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["drink_sizeList"] = noun
+                elif (noun in drink_quantity):
+                    if "drink_quantity" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["drink_quantity"] = noun
 
-                    elif (noun in drink_quantity):
-                        if "drink_quantity" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["drink_quantity"] = noun
+                elif (noun in meal_takeList):
+                    if "meal_takeList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                    slot_result["meal_takeList"] = noun
+                    
+                elif (noun in order_dateList):
+                    if "order_dateList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["order_dateList"] = noun
 
-                    elif (noun in meal_takeList):
-                        if "meal_takeList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                        slot_result["meal_takeList"] = noun
-                        
-                    elif (noun in order_dateList):
-                        if "order_dateList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["order_dateList"] = noun
+                elif (noun in quantityList):
+                    if "quantityList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["quantityList"] = noun
 
-                    elif (noun in quantityList):
-                        if "quantityList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["quantityList"] = noun
-
-                    elif (noun.isdigit()):
-                        if "order_timeList" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            continue
-                        #處理句子中數字但是判斷前後是否有:會超過範圍
-                        elif(((i-1) not in range(len(noun_list))) or ((i+1) not in range(len(noun_list)))):
-                            # print("處理句子中數字但是判斷前後是否有:會超過範圍")
-                            if(((i-1) not in range(len(noun_list))) and noun_list[i+1]!=':'):
-                                if "quantityList" in slot_result.keys():
-                                    appendToFinalList(slot_result,order_finalList)
-                                slot_result["quantityList"] = noun
-                            elif(((i+1) not in range(len(noun_list))) and noun_list[i-1]!=':'):
-                                if "quantityList" in slot_result.keys():
-                                    appendToFinalList(slot_result,order_finalList)                       
-                                slot_result["quantityList"] = noun
-                            else:
-                                slot_result["order_timeList"]= noun+noun_list[i+1]+noun_list[i+2]
-                        #處理句子中數字但是並非時間中的數值
-                        elif(noun_list[i+1]!=':' and noun_list[i-1]!=':' and ((i+1) in range(len(noun_list))) and ((i-1) in range(len(noun_list)))):
-                            #print("處理句子中數字但是並非時間中的數值")
+                elif (noun.isdigit()):
+                    if "order_timeList" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        continue
+                    #處理句子中數字但是判斷前後是否有:會超過範圍
+                    elif(((i-1) not in range(len(noun_list))) or ((i+1) not in range(len(noun_list)))):
+                        # print("處理句子中數字但是判斷前後是否有:會超過範圍")
+                        if(((i-1) not in range(len(noun_list))) and noun_list[i+1]!=':'):
                             if "quantityList" in slot_result.keys():
                                 appendToFinalList(slot_result,order_finalList)
                             slot_result["quantityList"] = noun
-                        #處理句子中數字並且是時間中的數值透過:去判斷
-                        else:  
-                            #print("處理句子中數字並且是時間中的數值透過:去判斷")
-                            slot_result["order_timeList"]= noun+noun_list[i+1]+noun_list[i+2]
-
-                    elif (noun in order_timetext):
-                        if "order_timetext" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["order_timetext"] = noun
-
-                    elif (noun in soup_size):
-                        if "soup_size" in slot_result.keys():
-                            appendToFinalList(slot_result,order_finalList)
-                            slot_result = {}
-                        slot_result["soup_size"] = noun
-                appendToFinalList(slot_result,order_finalList)
-                slot_result = {}
-        Response=printResult(slot_result,order_finalList)
-
-        for k,response in Response.items():
-            if(response==" "):
-                continue
-            else:
-                if(k=='other'):
-                    History.add(response)
-                else:
-                    for r in response:
-                        if(r=="好的，已為您下單"):
-                            continue
+                        elif(((i+1) not in range(len(noun_list))) and noun_list[i-1]!=':'):
+                            if "quantityList" in slot_result.keys():
+                                appendToFinalList(slot_result,order_finalList)                       
+                            slot_result["quantityList"] = noun
                         else:
-                            History.add(r)
-        History=list(History)
-        History.append("好的，已為您下單")
-        # input("History")
-        # print(History)
-        return History
-        
-if __name__ == '__main__':
-    RuleBased()
+                            slot_result["order_timeList"]= noun+noun_list[i+1]+noun_list[i+2]
+                    #處理句子中數字但是並非時間中的數值
+                    elif(noun_list[i+1]!=':' and noun_list[i-1]!=':' and ((i+1) in range(len(noun_list))) and ((i-1) in range(len(noun_list)))):
+                        #print("處理句子中數字但是並非時間中的數值")
+                        if "quantityList" in slot_result.keys():
+                            appendToFinalList(slot_result,order_finalList)
+                        slot_result["quantityList"] = noun
+                    #處理句子中數字並且是時間中的數值透過:去判斷
+                    else:  
+                        #print("處理句子中數字並且是時間中的數值透過:去判斷")
+                        slot_result["order_timeList"]= noun+noun_list[i+1]+noun_list[i+2]
+
+                elif (noun in order_timetext):
+                    if "order_timetext" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["order_timetext"] = noun
+
+                elif (noun in soup_size):
+                    if "soup_size" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["soup_size"] = noun
+                elif (noun in hito_meals_plus):
+                    if "hito_meals_plus" in slot_result.keys():
+                        appendToFinalList(slot_result,order_finalList)
+                        slot_result = {}
+                    slot_result["hito_meals_plus"] = noun
+
+            appendToFinalList(slot_result,order_finalList)
+            slot_result = {}
+    Response=printResult(slot_result,order_finalList)
+    
+    if(Response!=" "):
+        return Response
+    else:
+        bufferslot=ReadSlotFromJson(Jsonfilename)
+        mainResponse(bufferslot,Responses)
+                    
+# if __name__ == '__main__':
+#     RuleBased()
